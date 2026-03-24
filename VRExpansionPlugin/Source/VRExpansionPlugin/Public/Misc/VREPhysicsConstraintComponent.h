@@ -186,6 +186,19 @@ public:
 		TwistLimit = ConstraintInstance.GetAngularTwistLimit();
 	}
 
+	UFUNCTION(BlueprintCallable, Category = "VRE Physics Constraint Component")
+	void SetLinearDriveDampingPerAxis(float const DampingX, float const DampingY, float const DampingZ)
+	{
+		ConstraintInstance.ProfileInstance.LinearDrive.XDrive.Damping = DampingX; 
+		ConstraintInstance.ProfileInstance.LinearDrive.YDrive.Damping = DampingY; 
+		ConstraintInstance.ProfileInstance.LinearDrive.ZDrive.Damping = DampingZ;
+
+		FPhysicsInterface::ExecuteOnUnbrokenConstraintReadWrite(ConstraintInstance.ConstraintHandle, [this](FPhysicsConstraintHandle const& InUnbrokenConstraint)
+		{
+			FPhysicsInterface::UpdateLinearDrive_AssumesLocked(InUnbrokenConstraint, ConstraintInstance.ProfileInstance.LinearDrive);
+		});
+	}
+
 
 	//UPROPERTY(EditAnywhere, BlueprintReadWrite, Category = "VRE Constraint Settings")
 	//bool bSetAndMaintainCOMOnFrame2;
