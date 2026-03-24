@@ -716,7 +716,17 @@ void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVecto
 			FVector ForwardVec = LodgeData.TargetComponent->GetForwardVector();
 			
 			// Using swept objects hit normal as we are looking for a facing from ourselves
-			float DotValue = FMath::Abs(FVector::DotProduct(Hit.Normal, ForwardVec));
+
+			// float DotValue = FMath::Abs(FVector::DotProduct(Hit.Normal, ForwardVec)); // This always assumes using double edged penetration comp
+
+			// 1. Calculate the raw dot product (without Abs)
+			float const RawDotValue = FVector::DotProduct(Hit.Normal, ForwardVec);
+
+			// 2. Check if the user allowed reverse penetration in the Blueprint struct
+			float const DotValue = LodgeData.bAllowPenetrationInReverseAsWell
+				                 ? FMath::Abs(RawDotValue) // If double-edged, use Abs to allow both positive and negative directions
+				                 : FMath::Max(0.0f, RawDotValue);
+			
 			float Velocity = NormalImpulse.ProjectOnToNormal(ForwardVec).SizeSquared();//FrameToFrameVelocity.ProjectOnToNormal(ForwardVec);
 			// Check if the velocity was strong enough along our axis to count as a lodge event
 			// Also that our facing was in the relatively correct direction
