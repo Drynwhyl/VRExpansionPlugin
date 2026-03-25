@@ -725,7 +725,7 @@ void UGS_Melee::OnLodgeHitCallback(AActor* SelfActor, AActor* OtherActor, FVecto
 			// 2. Check if the user allowed reverse penetration in the Blueprint struct
 			float const DotValue = LodgeData.bAllowPenetrationInReverseAsWell
 				                 ? FMath::Abs(RawDotValue) // If double-edged, use Abs to allow both positive and negative directions
-				                 : FMath::Max(0.0f, RawDotValue);
+				                 : FMath::Max(0.0f, -RawDotValue);
 			
 			float Velocity = NormalImpulse.ProjectOnToNormal(ForwardVec).SizeSquared();//FrameToFrameVelocity.ProjectOnToNormal(ForwardVec);
 			// Check if the velocity was strong enough along our axis to count as a lodge event
