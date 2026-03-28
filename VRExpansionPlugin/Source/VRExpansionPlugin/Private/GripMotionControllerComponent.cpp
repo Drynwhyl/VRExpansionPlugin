@@ -8416,7 +8416,7 @@ void FExpandedLateUpdateManager::ProcessGripArrayLateUpdatePrimitives(UGripMotio
 	}
 }
 
-void UGripMotionControllerComponent::GetHandType(EControllerHand& Hand)
+void UGripMotionControllerComponent::GetHandType(EControllerHand& Hand) const
 {
 	if (!IMotionController::GetHandEnumForSourceName(MotionSource, Hand))
 	{
@@ -8436,6 +8436,13 @@ void UGripMotionControllerComponent::GetHandType(EControllerHand& Hand)
 			Hand = EControllerHand::Left;
 		}
 	}
+}
+
+EControllerHand UGripMotionControllerComponent::GetHandType() const
+{
+	EControllerHand Hand;
+	GetHandType(Hand);
+	return Hand;
 }
 
 void UGripMotionControllerComponent::SetCustomPivotComponent(USceneComponent * NewCustomPivotComponent, FName PivotSocketName)

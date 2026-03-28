@@ -413,7 +413,10 @@ public:
 
 	// Gets the hand enum
 	UFUNCTION(BlueprintPure, Category = "VRExpansionFunctions", meta = (bIgnoreSelf = "true", DisplayName = "HandType", CompactNodeTitle = "HandType"))
-		void GetHandType(EControllerHand& Hand);
+		void GetHandType(EControllerHand& Hand) const;
+
+	// Gets the hand enum. C++ friendly version
+	EControllerHand GetHandType() const;
 
 	// The component to use for basing the grip off of instead of the motion controller
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "GripMotionController|CustomPivot")
@@ -440,12 +443,12 @@ public:
 	UFUNCTION(BlueprintPure, Category = "GripMotionController", meta = (DisplayName = "GetPivotLocation"))
 		FVector GetPivotLocation_BP();
 
-	FORCEINLINE FTransform GetPivotTransform()
+	FORCEINLINE FTransform GetPivotTransform() const
 	{
 		return IsValid(CustomPivotComponent) ? CustomPivotComponent->GetSocketTransform(CustomPivotComponentSocketName) : this->GetComponentTransform();
 	}
 
-	FORCEINLINE FVector GetPivotLocation()
+	FORCEINLINE FVector GetPivotLocation() const
 	{
 		return IsValid(CustomPivotComponent) ? CustomPivotComponent->GetSocketLocation(CustomPivotComponentSocketName) : this->GetComponentLocation();
 	}
