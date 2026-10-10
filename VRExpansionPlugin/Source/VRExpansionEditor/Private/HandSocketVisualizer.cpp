@@ -275,8 +275,16 @@ void FHandSocketVisualizer::DrawVisualization(const UActorComponent* Component, 
 				}
 			}
 
-			// Scale into our parents space as that is actually what the range is based on			
-			FBox BoxToDraw = FBox::BuildAABB(FVector::ZeroVector, FVector(RangeVisualization) * HandComponent->GetAttachParent()->GetComponentScale());
+			// Scale into our parents space as that is actually what the range is based on
+			// The attach parent can be invalid between deletion stages while the draw
+			// list still holds references to this component, so bind it once and guard.
+			USceneComponent* RangeParent = HandComponent->GetAttachParent();
+			if (!RangeParent)
+			{
+				return;
+			}
+
+			FBox BoxToDraw = FBox::BuildAABB(FVector::ZeroVector, FVector(RangeVisualization) * RangeParent->GetComponentScale());
 			BoxToDraw.Min += HandComponent->GetComponentLocation();
 			BoxToDraw.Max += HandComponent->GetComponentLocation();
 

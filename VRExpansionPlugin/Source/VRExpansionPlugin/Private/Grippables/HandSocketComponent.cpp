@@ -964,6 +964,14 @@ void UHandSocketComponent::PostEditChangeProperty(FPropertyChangedEvent& Propert
 			PropertyThatChanged->GetFName() == GET_MEMBER_NAME_CHECKED(UHandSocketComponent, VisualizationMesh)
 			)
 		{
+			// An assigned visualizer must not outlive a cleared mesh: without this the
+			// poseable keeps the last asset and draws on sockets that no longer have one.
+			if (!VisualizationMesh && HandVisualizerComponent)
+			{
+				HandVisualizerComponent->DestroyComponent();
+				HandVisualizerComponent = nullptr;
+			}
+
 			PositionVisualizationMesh();
 			PoseVisualizationToAnimation(true);
 		}
@@ -974,6 +982,12 @@ void UHandSocketComponent::PostEditChangeProperty(FPropertyChangedEvent& Propert
 		else if (PropertyThatChanged->GetFName() == GET_MEMBER_NAME_CHECKED(UHandSocketComponent, HandRelativePlacement))
 		{
 			PositionVisualizationMesh();
+		}
+		else if (PropertyThatChanged->GetFName() == GET_MEMBER_NAME_CHECKED(UHandSocketComponent, bMirrorVisualizationMesh) ||
+			PropertyThatChanged->GetFName() == GET_MEMBER_NAME_CHECKED(UHandSocketComponent, bLeftHandDominant))
+		{
+			PositionVisualizationMesh();
+			PoseVisualizationToAnimation(true);
 		}
 		else if (PropertyThatChanged->GetFName() == GET_MEMBER_NAME_CHECKED(UHandSocketComponent, bShowVisualizationMesh))
 		{

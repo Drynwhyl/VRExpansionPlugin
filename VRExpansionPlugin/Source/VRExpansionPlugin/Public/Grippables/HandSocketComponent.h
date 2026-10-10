@@ -442,7 +442,9 @@ public:
 	UPROPERTY()
 		TObjectPtr<UPoseableMeshComponent> HandVisualizerComponent;
 
-	UPROPERTY(EditAnywhere, BlueprintReadOnly, Transient, Category = "Hand Visualization")
+	// Upstream ships this Transient, so assigned visualization meshes evaporate on
+	// save or restart. We persist it: pose authoring must survive between sessions.
+	UPROPERTY(EditAnywhere, BlueprintReadOnly, Category = "Hand Visualization")
 		TObjectPtr<USkeletalMesh> VisualizationMesh;
 
 	// If we should show the visualization mesh
