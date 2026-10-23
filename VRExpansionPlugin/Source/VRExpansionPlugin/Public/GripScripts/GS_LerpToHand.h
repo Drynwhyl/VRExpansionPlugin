@@ -60,10 +60,17 @@ public:
 		FRuntimeFloatCurve OptionalCurveToFollow;
 
 	FTransform OnGripTransform;
-	// Start of the flight expressed in the gripping controller's pivot space. The flight is
-	// blended in that space, so walking or jumping during the flight carries the whole arc
-	// with the hand instead of leaving the start point behind in the world.
+	// Start of the flight expressed in the gripping controller's pivot space. Only used when
+	// bLerpStartFollowsHand is set: the arc is then blended in that space, so walking or
+	// jumping during the flight carries it with the hand instead of leaving the start point
+	// behind in the world.
 	FTransform OnGripRelativeTransform;
+
+	// Opt-in: rebase the flight start onto the hand every tick (pawn-frame flight). Off by
+	// default, which keeps the original world-space blend.
+	UPROPERTY(EditAnywhere, Category = "LerpToHand")
+		bool bLerpStartFollowsHand = false;
+
 	uint8 TargetGrip;
 
 	//virtual void BeginPlay_Implementation() override;

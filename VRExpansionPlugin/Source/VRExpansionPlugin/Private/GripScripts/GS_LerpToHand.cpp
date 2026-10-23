@@ -123,10 +123,9 @@ bool UGS_LerpToHand::GetWorldTransform_Implementation
 		bIsActive = false;
 	}
 
-	// The flight start follows the hand: blending in pivot space keeps the arc intact while
-	// the pawn walks, jumps or turns, instead of dragging the object to a world point that
-	// the player has already left behind.
-	FTransform NA = OnGripRelativeTransform * GrippingController->GetPivotTransform();
+	// Opt-in pawn-frame flight: rebasing the start onto the hand keeps the arc intact while
+	// the pawn walks, jumps or turns. Default keeps the original world-space blend.
+	FTransform NA = bLerpStartFollowsHand ? (OnGripRelativeTransform * GrippingController->GetPivotTransform()) : OnGripTransform;
 
 	float Alpha = 0.0f; 
 
