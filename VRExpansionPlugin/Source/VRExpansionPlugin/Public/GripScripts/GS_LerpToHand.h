@@ -44,12 +44,6 @@ public:
 
 	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "LerpSettings")
 	EVRLerpInterpolationMode LerpInterpolationMode;
-
-	// Opt-in pawn-frame flight: rebasing the flight start onto the hand every tick keeps the
-	// arc intact while the pawn walks, jumps or turns, instead of leaving the start point
-	// behind in the world. Off by default, which keeps the original world-space blend.
-	UPROPERTY(BlueprintReadWrite, EditAnywhere, Category = "LerpSettings")
-		bool bLerpStartFollowsHand = false;
 	
 	UPROPERTY(BlueprintAssignable, Category = "LerpEvents")
 		FVRLerpToHandFinishedSignature OnLerpToHandBegin;
@@ -66,11 +60,6 @@ public:
 		FRuntimeFloatCurve OptionalCurveToFollow;
 
 	FTransform OnGripTransform;
-	// Start of the flight expressed in the gripping controller's pivot space. Only used when
-	// bLerpStartFollowsHand is set: the arc is then blended in that space, so walking or
-	// jumping during the flight carries it with the hand instead of leaving the start point
-	// behind in the world.
-	FTransform OnGripRelativeTransform;
 	uint8 TargetGrip;
 
 	//virtual void BeginPlay_Implementation() override;
