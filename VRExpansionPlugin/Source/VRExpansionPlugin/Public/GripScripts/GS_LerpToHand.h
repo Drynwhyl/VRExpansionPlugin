@@ -60,6 +60,10 @@ public:
 		FRuntimeFloatCurve OptionalCurveToFollow;
 
 	FTransform OnGripTransform;
+	// Start of the flight expressed in the gripping controller's pivot space. The flight is
+	// blended in that space, so walking or jumping during the flight carries the whole arc
+	// with the hand instead of leaving the start point behind in the world.
+	FTransform OnGripRelativeTransform;
 	uint8 TargetGrip;
 
 	//virtual void BeginPlay_Implementation() override;

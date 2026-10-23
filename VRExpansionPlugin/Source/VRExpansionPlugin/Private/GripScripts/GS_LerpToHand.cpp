@@ -45,6 +45,8 @@ void UGS_LerpToHand::OnGrip_Implementation(UGripMotionControllerComponent * Grip
 	TargetGrip = GripInformation.GripID;
 
 	OnGripTransform = GetParentTransform(true, GripInformation.GrippedBoneName);
+	// Same pose in the pivot's space: the flight start is rebased onto the hand every tick.
+	OnGripRelativeTransform = OnGripTransform * GrippingController->GetPivotTransform().Inverse();
 	UObject* ParentObj = this->GetParent();
 
 	FTransform TargetTransform = GripInformation.RelativeTransform * GrippingController->GetPivotTransform();
@@ -121,7 +123,10 @@ bool UGS_LerpToHand::GetWorldTransform_Implementation
 		bIsActive = false;
 	}
 
-	FTransform NA = OnGripTransform;//root->GetComponentTransform();
+	// The flight start follows the hand: blending in pivot space keeps the arc intact while
+	// the pawn walks, jumps or turns, instead of dragging the object to a world point that
+	// the player has already left behind.
+	FTransform NA = OnGripRelativeTransform * GrippingController->GetPivotTransform();
 
 	float Alpha = 0.0f; 
 
