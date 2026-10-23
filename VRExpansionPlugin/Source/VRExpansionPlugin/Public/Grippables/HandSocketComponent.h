@@ -463,6 +463,14 @@ public:
 	void PositionVisualizationMesh();
 	void HideVisualizationMesh();
 
+	/**
+	 * Off-hand preview hook. A subclass returns true to draw its own off-hand preview:
+	 * OutSocketRelativeTransform is the preview mesh transform relative to this socket and
+	 * OutMesh a replacement mesh (null keeps VisualizationMesh). Returning false keeps the
+	 * built-in mirrored-mesh drawing.
+	 */
+	virtual bool GetOffHandPreviewTransform(FTransform& OutSocketRelativeTransform, USkeletalMesh*& OutMesh) { return false; }
+
 #endif
 
 #if WITH_EDITORONLY_DATA

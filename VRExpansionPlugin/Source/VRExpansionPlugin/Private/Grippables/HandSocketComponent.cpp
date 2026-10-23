@@ -695,8 +695,10 @@ void UHandSocketComponent::OnRegister()
 			HandVisualizerComponent->RegisterComponentWithWorld(GetWorld());
 			//HandVisualizerComponent->SetUsingAbsoluteScale(true);
 		}
-		else if (/*!bShowVisualizationMesh && */HandVisualizerComponent)
+		else if (HandVisualizerComponent && (MyWorldType != EWorldType::EditorPreview && MyWorldType != EWorldType::Editor))
 		{
+			// Only tear the visualizer down outside editor worlds: re-registering a component
+			// in the editor must keep the preview alive instead of destroying it for good.
 			HandVisualizerComponent->SetVisibility(false);
 			HandVisualizerComponent->DestroyComponent();
 			HandVisualizerComponent = nullptr;
@@ -758,6 +760,30 @@ void UHandSocketComponent::PositionVisualizationMesh()
 			{
 				HandRelativePlacement = HandRelativePlacement.GetRelativeTransform(GetRelativeTransform());
 			}
+		}
+
+		if (bMirrorVisualizationMesh)//(bFlipForLeftHand && !bIsRightHand))
+		{
+			// A subclass may know the real off-hand frame (a genuine left mesh instead of
+			// mirroring the right one); when it does, draw its transform and mesh as-is.
+			FTransform OffHandRelativeTransform = FTransform::Identity;
+			USkeletalMesh* OffHandMesh = nullptr;
+			if (GetOffHandPreviewTransform(OffHandRelativeTransform, OffHandMesh))
+			{
+				if (OffHandMesh && HandVisualizerComponent->GetSkinnedAsset() != OffHandMesh)
+				{
+					HandVisualizerComponent->SetSkinnedAssetAndUpdate(OffHandMesh);
+					PoseVisualizationToAnimation(true);
+				}
+				HandVisualizerComponent->SetRelativeTransform(OffHandRelativeTransform);
+				return;
+			}
+		}
+		else if (VisualizationMesh && HandVisualizerComponent->GetSkinnedAsset() != VisualizationMesh)
+		{
+			// Leaving the off-hand preview: restore the authored mesh before the normal path.
+			HandVisualizerComponent->SetSkinnedAssetAndUpdate(VisualizationMesh);
+			PoseVisualizationToAnimation(true);
 		}
 
 		FTransform HandPlacement = GetHandRelativePlacement();
