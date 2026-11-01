@@ -41,6 +41,8 @@ UVRBaseCharacterMovementComponent::UVRBaseCharacterMovementComponent(const FObje
 
 	AdditionalVRInputVector = FVector::ZeroVector;	
 	CustomVRInputVector = FVector::ZeroVector;
+	DescentVRInputVector = FVector::ZeroVector;
+	LastClimbingDescentDisplacement = FVector::ZeroVector;
 	TrackingLossThreshold = 6000.f;
 	bApplyAdditionalVRInputVectorAsNegative = true;
 	bHadExtremeInput = false;
@@ -108,6 +110,8 @@ void UVRBaseCharacterMovementComponent::OnMovementModeChanged(EMovementMode Prev
 
 	// Clear out the old custom input vector, it will pollute the pool now that all modes allow it.
 	CustomVRInputVector = FVector::ZeroVector;
+	DescentVRInputVector = FVector::ZeroVector;
+	LastClimbingDescentDisplacement = FVector::ZeroVector;
 
 	if (PreviousMovementMode == EMovementMode::MOVE_Custom && PreviousCustomMode == (uint8)EVRCustomMovementMode::VRMOVE_Seated)
 	{
@@ -211,6 +215,7 @@ bool UVRBaseCharacterMovementComponent::ClientUpdatePositionAfterServerUpdate()
 	// Store out our custom properties to restore after replaying
 	const FVRMoveActionArray Orig_MoveActions = MoveActionArray;
 	const FVector Orig_CustomInput = CustomVRInputVector;
+	const FVector Orig_DescentInput = DescentVRInputVector;
 	const EVRConjoinedMovementModes Orig_VRReplicatedMovementMode = VRReplicatedMovementMode;
 	const FVector Orig_RequestedVelocity = RequestedVelocity;
 	const bool Orig_HasRequestedVelocity = HasRequestedVelocity();
@@ -276,6 +281,7 @@ bool UVRBaseCharacterMovementComponent::ClientUpdatePositionAfterServerUpdate()
 	// Restore our move actions
 	MoveActionArray = Orig_MoveActions;
 	CustomVRInputVector = Orig_CustomInput;
+	DescentVRInputVector = Orig_DescentInput;
 	VRReplicatedMovementMode = Orig_VRReplicatedMovementMode;
 	RequestedVelocity = Orig_RequestedVelocity;
 	SetHasRequestedVelocity(Orig_HasRequestedVelocity);
@@ -421,6 +427,7 @@ void UVRBaseCharacterMovementComponent::TickComponent(float DeltaTime, enum ELev
 				// Make sure these are cleaned out for the next frame
 				AdditionalVRInputVector = FVector::ZeroVector;
 				CustomVRInputVector = FVector::ZeroVector;
+				DescentVRInputVector = FVector::ZeroVector;
 			}
 
 			if (bRunControlRotationInMovementComponent && CharacterOwner->IsLocallyControlled())
@@ -802,6 +809,7 @@ void UVRBaseCharacterMovementComponent::AddCustomReplicatedMovement(FVector Move
 void UVRBaseCharacterMovementComponent::ClearCustomReplicatedMovement()
 {
 	CustomVRInputVector = FVector::ZeroVector;
+	DescentVRInputVector = FVector::ZeroVector;
 }
 
 void UVRBaseCharacterMovementComponent::CheckServerAuthedMoveAction()
@@ -1291,6 +1299,11 @@ bool UVRBaseCharacterMovementComponent::VRClimbStepUp(const FVector& GravDir, co
 
 void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int32 Iterations)
 {
+	LastClimbingDescentDisplacement = FVector::ZeroVector;
+	static int32 DescentPhysicsLogCounter = 0;
+	const bool bLogDescentPhysics = (++DescentPhysicsLogCounter % 30 == 0)
+		&& (!CustomVRInputVector.IsNearlyZero() || !DescentVRInputVector.IsNearlyZero());
+
 	if (deltaTime < MIN_TICK_TIME)
 	{
 		return;
@@ -1317,7 +1330,7 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 	bJustTeleported = false;
 
 	FVector OldLocation = UpdatedComponent->GetComponentLocation();
-	const FVector Adjusted = /*(Velocity * deltaTime) + */CustomVRInputVector;
+	const FVector Adjusted = /*(Velocity * deltaTime) + */CustomVRInputVector - DescentVRInputVector;
 	FVector Delta = Adjusted + AdditionalVRInputVector;
 	bool bZeroDelta = Delta.IsNearlyZero();
 
@@ -1337,7 +1350,7 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 		if (Hit.Time < 1.f)
 		{
 			const FVector GravDir = FVector(0.f, 0.f, -1.f);
-			const FVector VelDir = (CustomVRInputVector).GetSafeNormal();//Velocity.GetSafeNormal();
+			const FVector VelDir = Adjusted.GetSafeNormal();//Velocity.GetSafeNormal();
 			const float UpDown = GravDir | VelDir;
 
 			//bool bSteppedUp = false;
@@ -1386,6 +1399,34 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 
 	// Revert to old max step height
 	MaxStepHeight = OldMaxStepHeight;
+
+	// Rail descent gets its own sweep. The ordinary climbing pull above and AdditionalVRInputVector
+	// cannot pollute the achieved displacement that the climbing component uses to advance anchors.
+	if (!bSteppedUp && !DescentVRInputVector.IsNearlyZero())
+	{
+		const FVector DescentStartLocation = UpdatedComponent->GetComponentLocation();
+		FHitResult DescentHit(1.f);
+		SafeMoveUpdatedComponent(DescentVRInputVector, UpdatedComponent->GetComponentQuat(), true, DescentHit);
+
+		if (DescentHit.Time < 1.f)
+		{
+			HandleImpact(DescentHit, deltaTime, DescentVRInputVector);
+			SlideAlongSurface(DescentVRInputVector, 1.f - DescentHit.Time,
+				DescentHit.Normal, DescentHit, true);
+		}
+
+		LastClimbingDescentDisplacement =
+			UpdatedComponent->GetComponentLocation() - DescentStartLocation;
+	}
+
+	bZeroDelta = bZeroDelta && LastClimbingDescentDisplacement.IsNearlyZero();
+	if (bLogDescentPhysics)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("CrDescent: VRE ordinary %s descent-in %s achieved %s stepped %d"),
+			*Adjusted.ToCompactString(), *DescentVRInputVector.ToCompactString(),
+			*LastClimbingDescentDisplacement.ToCompactString(), bSteppedUp ? 1 : 0);
+	}
 
 	if (bSteppedUp)
 	{

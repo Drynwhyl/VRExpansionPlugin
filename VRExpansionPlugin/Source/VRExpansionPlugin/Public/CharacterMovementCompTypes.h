@@ -434,6 +434,8 @@ public:
 	UPROPERTY(Transient)
 		FVector CustomVRInputVector;
 	UPROPERTY(Transient)
+		FVector DescentVRInputVector;
+	UPROPERTY(Transient)
 		FVector RequestedVelocity;
 	UPROPERTY(Transient)
 		FVRMoveActionArray MoveActionArray;
@@ -442,6 +444,7 @@ public:
 	FVRConditionalMoveRep()
 	{
 		CustomVRInputVector = FVector::ZeroVector;
+		DescentVRInputVector = FVector::ZeroVector;
 		RequestedVelocity = FVector::ZeroVector;
 	}
 
@@ -454,15 +457,17 @@ public:
 		bool bIsLoading = Ar.IsLoading();
 
 		bool bHasVRinput = !CustomVRInputVector.IsZero();
+		bool bHasDescentInput = !DescentVRInputVector.IsZero();
 		bool bHasRequestedVelocity = !RequestedVelocity.IsZero();
 		bool bHasMoveAction = MoveActionArray.MoveActions.Num() > 0;//MoveAction.MoveAction != EVRMoveAction::VRMOVEACTION_None;
 
-		bool bHasAnyProperties = bHasVRinput || bHasRequestedVelocity || bHasMoveAction;
+		bool bHasAnyProperties = bHasVRinput || bHasDescentInput || bHasRequestedVelocity || bHasMoveAction;
 		Ar.SerializeBits(&bHasAnyProperties, 1);
 
 		if (bHasAnyProperties)
 		{
 			Ar.SerializeBits(&bHasVRinput, 1);
+			Ar.SerializeBits(&bHasDescentInput, 1);
 			Ar.SerializeBits(&bHasRequestedVelocity, 1);
 			//Ar.SerializeBits(&bHasMoveAction, 1);
 
@@ -473,6 +478,15 @@ public:
 			else if (bIsLoading)
 			{
 				CustomVRInputVector = FVector::ZeroVector;
+			}
+
+			if (bHasDescentInput)
+			{
+				bOutSuccess &= SerializePackedVector<100, 22>(DescentVRInputVector, Ar);
+			}
+			else if (bIsLoading)
+			{
+				DescentVRInputVector = FVector::ZeroVector;
 			}
 
 			if (bHasRequestedVelocity)
@@ -490,6 +504,7 @@ public:
 		else if (bIsLoading)
 		{
 			CustomVRInputVector = FVector::ZeroVector;
+			DescentVRInputVector = FVector::ZeroVector;
 			RequestedVelocity = FVector::ZeroVector;
 			MoveActionArray.Clear();
 		}

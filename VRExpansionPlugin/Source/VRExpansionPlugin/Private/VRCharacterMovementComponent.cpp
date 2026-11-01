@@ -626,6 +626,7 @@ void UVRCharacterMovementComponent::ServerMove_PerformMovement(const FCharacterN
 			}
 
 			CustomVRInputVector = MoveDataVR->ConditionalMoveReps.CustomVRInputVector;
+			DescentVRInputVector = MoveDataVR->ConditionalMoveReps.DescentVRInputVector;
 			MoveActionArray = MoveDataVR->ConditionalMoveReps.MoveActionArray;
 			VRReplicatedMovementMode = MoveDataVR->ReplicatedMovementMode;
 
@@ -4933,6 +4934,7 @@ bool UVRCharacterMovementComponent::ClientUpdatePositionAfterServerUpdate()
 	// Store out our custom properties to restore after replaying
 	const FVRMoveActionArray Orig_MoveActions = MoveActionArray;
 	const FVector Orig_CustomInput = CustomVRInputVector;
+	const FVector Orig_DescentInput = DescentVRInputVector;
 	const EVRConjoinedMovementModes Orig_VRReplicatedMovementMode = VRReplicatedMovementMode;
 	const FVector Orig_RequestedVelocity = RequestedVelocity;
 	const bool Orig_HasRequestedVelocity = HasRequestedVelocity();
@@ -5006,6 +5008,7 @@ bool UVRCharacterMovementComponent::ClientUpdatePositionAfterServerUpdate()
 	// Restore our custom properties
 	MoveActionArray = Orig_MoveActions;
 	CustomVRInputVector = Orig_CustomInput;
+	DescentVRInputVector = Orig_DescentInput;
 	VRReplicatedMovementMode = Orig_VRReplicatedMovementMode;
 	RequestedVelocity = Orig_RequestedVelocity;
 	SetHasRequestedVelocity(Orig_HasRequestedVelocity);

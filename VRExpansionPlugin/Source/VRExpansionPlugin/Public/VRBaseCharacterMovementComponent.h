@@ -182,6 +182,11 @@ public:
 	virtual bool DoMAPauseTracking(FVRMoveActionContainer& MoveAction);
 
 	FVector CustomVRInputVector;
+	// The part of CustomVRInputVector reserved for rail descent. Climbing sweeps this separately so
+	// ordinary hand pull cannot be mistaken for accepted rail travel. Serialized with saved moves.
+	FVector DescentVRInputVector = FVector::ZeroVector;
+	// Actual displacement produced by the descent-only sweep during the last climbing physics step.
+	FVector LastClimbingDescentDisplacement = FVector::ZeroVector;
 	FVector AdditionalVRInputVector;
 	FVector LastPreAdditiveVRVelocity;
 	bool bHadExtremeInput;

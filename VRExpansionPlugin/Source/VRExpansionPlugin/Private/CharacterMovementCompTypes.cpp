@@ -130,6 +130,7 @@ void FSavedMove_VRBaseCharacter::SetInitialPosition(ACharacter* C)
 	{
 		VRReplicatedMovementMode = EVRConjoinedMovementModes::C_MOVE_MAX;//None;
 		ConditionalValues.CustomVRInputVector = FVector::ZeroVector;
+		ConditionalValues.DescentVRInputVector = FVector::ZeroVector;
 		ConditionalValues.RequestedVelocity = FVector::ZeroVector;
 	}
 	//}
@@ -188,6 +189,7 @@ void FSavedMove_VRBaseCharacter::PostUpdate(ACharacter* C, EPostUpdateMode PostU
 	if (UVRBaseCharacterMovementComponent* moveComp = Cast<UVRBaseCharacterMovementComponent>(C->GetMovementComponent()))
 	{
 		ConditionalValues.CustomVRInputVector = moveComp->CustomVRInputVector;
+		ConditionalValues.DescentVRInputVector = moveComp->DescentVRInputVector;
 		ConditionalValues.MoveActionArray = moveComp->MoveActionArray;
 		moveComp->MoveActionArray.Clear();
 
@@ -236,6 +238,7 @@ void FSavedMove_VRBaseCharacter::Clear()
 	CapsuleHeight = 0.0f;
 
 	ConditionalValues.CustomVRInputVector = FVector::ZeroVector;
+	ConditionalValues.DescentVRInputVector = FVector::ZeroVector;
 	ConditionalValues.RequestedVelocity = FVector::ZeroVector;
 	ConditionalValues.MoveActionArray.Clear();
 	//ConditionalValues.MoveAction.Clear();
@@ -252,6 +255,7 @@ void FSavedMove_VRBaseCharacter::PrepMoveFor(ACharacter* Character)
 		BaseCharMove->MoveActionArray = ConditionalValues.MoveActionArray;
 		//BaseCharMove->MoveAction = ConditionalValues.MoveAction; 
 		BaseCharMove->CustomVRInputVector = ConditionalValues.CustomVRInputVector;//this->CustomVRInputVector;
+		BaseCharMove->DescentVRInputVector = ConditionalValues.DescentVRInputVector;
 		BaseCharMove->VRReplicatedMovementMode = this->VRReplicatedMovementMode;
 	}
 
