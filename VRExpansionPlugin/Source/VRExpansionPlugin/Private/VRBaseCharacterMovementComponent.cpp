@@ -1400,11 +1400,15 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 	// Revert to old max step height
 	MaxStepHeight = OldMaxStepHeight;
 
+	FVector DescentStartLocation = FVector::ZeroVector;
+	bool bDescentSweepStarted = false;
+
 	// Rail descent gets its own sweep. The ordinary climbing pull above and AdditionalVRInputVector
 	// cannot pollute the achieved displacement that the climbing component uses to advance anchors.
 	if (!bSteppedUp && !DescentVRInputVector.IsNearlyZero())
 	{
-		const FVector DescentStartLocation = UpdatedComponent->GetComponentLocation();
+		DescentStartLocation = UpdatedComponent->GetComponentLocation();
+		bDescentSweepStarted = true;
 		FHitResult DescentHit(1.f);
 		SafeMoveUpdatedComponent(DescentVRInputVector, UpdatedComponent->GetComponentQuat(), true, DescentHit);
 
@@ -1420,13 +1424,6 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 	}
 
 	bZeroDelta = bZeroDelta && LastClimbingDescentDisplacement.IsNearlyZero();
-	if (bLogDescentPhysics)
-	{
-		UE_LOG(LogTemp, Warning,
-			TEXT("CrDescent: VRE ordinary %s descent-in %s achieved %s stepped %d"),
-			*Adjusted.ToCompactString(), *DescentVRInputVector.ToCompactString(),
-			*LastClimbingDescentDisplacement.ToCompactString(), bSteppedUp ? 1 : 0);
-	}
 
 	if (bSteppedUp)
 	{
@@ -1482,6 +1479,23 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 		// Auto Align to the new floor normal
 		// Set gravity direction to the new floor normal
 		AutoTraceAndSetCharacterToNewGravity(CurrentFloor.HitResult, deltaTime);
+	}
+
+	// Floor fitting and penetration recovery can undo some or all of the raw sweep. Anchors must use
+	// the final capsule displacement, not the transient pre-floor movement that put them below the floor.
+	if (bDescentSweepStarted)
+	{
+		LastClimbingDescentDisplacement =
+			UpdatedComponent->GetComponentLocation() - DescentStartLocation;
+	}
+
+	if (bLogDescentPhysics)
+	{
+		UE_LOG(LogTemp, Warning,
+			TEXT("CrDescent: VRE ordinary %s descent-in %s achieved %s net-body %s stepped %d"),
+			*Adjusted.ToCompactString(), *DescentVRInputVector.ToCompactString(),
+			*LastClimbingDescentDisplacement.ToCompactString(),
+			*(UpdatedComponent->GetComponentLocation() - OldLocation).ToCompactString(), bSteppedUp ? 1 : 0);
 	}
 
 	if(!bSteppedUp || !SetDefaultPostClimbMovementOnStepUp)
