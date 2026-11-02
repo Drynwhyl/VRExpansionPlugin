@@ -1301,7 +1301,8 @@ void UVRBaseCharacterMovementComponent::PhysCustom_Climbing(float deltaTime, int
 {
 	LastClimbingDescentDisplacement = FVector::ZeroVector;
 	static int32 DescentPhysicsLogCounter = 0;
-	const bool bLogDescentPhysics = (++DescentPhysicsLogCounter % 30 == 0)
+	const bool bLogDescentPhysics = bLogClimbDescent
+		&& (++DescentPhysicsLogCounter % 30 == 0)
 		&& (!CustomVRInputVector.IsNearlyZero() || !DescentVRInputVector.IsNearlyZero());
 
 	if (deltaTime < MIN_TICK_TIME)

@@ -187,6 +187,10 @@ public:
 	FVector DescentVRInputVector = FVector::ZeroVector;
 	// Actual displacement produced by the descent-only sweep during the last climbing physics step.
 	FVector LastClimbingDescentDisplacement = FVector::ZeroVector;
+	// Diagnostic switch owned by the game module: the climb descent log is silent unless the project
+	// turns it on (its climbing component drives this from its own debug cvar).
+	UPROPERTY(EditAnywhere, Category = "VR|Climbing")
+	bool bLogClimbDescent = false;
 	FVector AdditionalVRInputVector;
 	FVector LastPreAdditiveVRVelocity;
 	bool bHadExtremeInput;
