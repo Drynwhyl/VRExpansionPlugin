@@ -128,11 +128,8 @@ FBodyInstance* UOptionalRepSkeletalMeshComponent::GetBodyInstance(FName BoneName
 }
 
 //=============================================================================
-// Default mesh is the sign-preserving blend: plain subclasses and same-class child
-// overrides both resolve to it (a same-class Set is always legal), so no child is
-// ever silently replaced by a sibling and mirrored meshes survive the blend.
 AGrippableSkeletalMeshActor::AGrippableSkeletalMeshActor(const FObjectInitializer& ObjectInitializer)
-	: Super(ObjectInitializer.SetDefaultSubobjectClass<UInversePhysicsSkeletalMeshComponent>(TEXT("SkeletalMeshComponent0")))
+	: Super(ObjectInitializer.SetDefaultSubobjectClass<UOptionalRepSkeletalMeshComponent>(TEXT("SkeletalMeshComponent0")))
 {
 	VRGripInterfaceSettings.bDenyGripping = false;
 	VRGripInterfaceSettings.OnTeleportBehavior = EGripInterfaceTeleportBehavior::TeleportAllComponents;
