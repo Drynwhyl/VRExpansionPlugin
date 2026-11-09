@@ -7,7 +7,6 @@
 #include "GameFramework/PlayerController.h"
 #include "GameFramework/PlayerState.h"
 #include "GripMotionControllerComponent.h"
-#include "Misc/OptionalRepSkeletalMeshActor.h"
 #include "VRExpansionFunctionLibrary.h"
 #include "Misc/BucketUpdateSubsystem.h"
 #include "Net/UnrealNetwork.h"
