@@ -8459,6 +8459,9 @@ void FExpandedLateUpdateManager::Apply_RenderThread(FSceneInterface* Scene, cons
 
 void FExpandedLateUpdateManager::CacheSceneInfo(USceneComponent* Component)
 {
+	if (!Component)
+		return;
+
 	ensureMsgf(!Component->IsUsingAbsoluteLocation() && !Component->IsUsingAbsoluteRotation(), TEXT("SceneComponents that use absolute location or rotation are not supported by the LateUpdateManager"));
 	// If a scene proxy is present, cache it
 	UPrimitiveComponent* PrimitiveComponent = dynamic_cast<UPrimitiveComponent*>(Component);
@@ -8468,6 +8471,56 @@ void FExpandedLateUpdateManager::CacheSceneInfo(USceneComponent* Component)
 		if (PrimitiveSceneInfo && PrimitiveSceneInfo->IsIndexValid())
 		{
 			UpdateStates[LateUpdateGameWriteIndex].Primitives.Emplace(PrimitiveSceneInfo, PrimitiveSceneInfo->GetIndex());
+		}
+	}
+}
+
+void UGripMotionControllerComponent::AddLateUpdateDependent(UPrimitiveComponent* DependentPrimitive, UPrimitiveComponent* GripPrimitive, FName GripBoneName)
+{
+	if (!DependentPrimitive || !GripPrimitive)
+		return;
+
+	for (const FGripLateUpdateDependent& Existing : LateUpdateDependents)
+	{
+		if (Existing.DependentPrimitive == DependentPrimitive && Existing.GripPrimitive == GripPrimitive && Existing.GripBoneName == GripBoneName)
+			return;
+	}
+
+	FGripLateUpdateDependent& NewEntry = LateUpdateDependents.AddDefaulted_GetRef();
+	NewEntry.DependentPrimitive = DependentPrimitive;
+	NewEntry.GripPrimitive = GripPrimitive;
+	NewEntry.GripBoneName = GripBoneName;
+}
+
+void UGripMotionControllerComponent::RemoveLateUpdateDependent(UPrimitiveComponent* DependentPrimitive, UPrimitiveComponent* GripPrimitive, FName GripBoneName)
+{
+	LateUpdateDependents.RemoveAll([DependentPrimitive, GripPrimitive, GripBoneName](const FGripLateUpdateDependent& Entry)
+	{
+		if (Entry.GripPrimitive != GripPrimitive || Entry.GripBoneName != GripBoneName)
+			return false;
+
+		// A destroyed dependent resolves to null; its registration still belongs to this exact removal.
+		return DependentPrimitive == nullptr || Entry.DependentPrimitive == DependentPrimitive;
+	});
+}
+
+void FExpandedLateUpdateManager::GatherLateUpdateDependents(UGripMotionControllerComponent* MotionController, USceneComponent* GripRoot, FName GripBoneName)
+{
+	if (!MotionController || !GripRoot)
+		return;
+
+	UPrimitiveComponent* GripPrimitive = Cast<UPrimitiveComponent>(GripRoot);
+	if (!GripPrimitive)
+		return;
+
+	for (const FGripLateUpdateDependent& Entry : MotionController->LateUpdateDependents)
+	{
+		if (Entry.GripPrimitive != GripPrimitive || Entry.GripBoneName != GripBoneName)
+			continue;
+
+		if (UPrimitiveComponent* Dependent = Entry.DependentPrimitive.Get())
+		{
+			CacheSceneInfo(Dependent);
 		}
 	}
 }
@@ -8576,6 +8629,7 @@ void FExpandedLateUpdateManager::ProcessGripArrayLateUpdatePrimitives(UGripMotio
 				if (USceneComponent * rootComponent = pActor->GetRootComponent())
 				{
 					GatherLateUpdatePrimitives(rootComponent);
+					GatherLateUpdateDependents(MotionControllerComponent, rootComponent, actor.GrippedBoneName);
 				}
 			}
 
@@ -8588,6 +8642,7 @@ void FExpandedLateUpdateManager::ProcessGripArrayLateUpdatePrimitives(UGripMotio
 			if (cPrimComp)
 			{
 				GatherLateUpdatePrimitives(cPrimComp);
+				GatherLateUpdateDependents(MotionControllerComponent, cPrimComp, actor.GrippedBoneName);
 			}
 		}break;
 		}

@@ -92,6 +92,9 @@ public:
 	/** Generates a LateUpdatePrimitiveInfo for the given component if it has a SceneProxy and appends it to the current LateUpdatePrimitives array */
 	void CacheSceneInfo(USceneComponent* Component);
 
+	/** Caches every primitive registered as a render dependent of this grip body (same primitive + bone identity VRE resolves). */
+	void GatherLateUpdateDependents(UGripMotionControllerComponent* MotionController, USceneComponent* GripRoot, FName GripBoneName);
+
 	struct FLateUpdateState
 	{
 		FLateUpdateState()
@@ -149,6 +152,26 @@ struct TStructOpsTypeTraits<FGripComponentEndPhysicsTickFunction> : public TStru
 };
 
 /**
+* Render dependency for the expanded late update: while a grip drives the given primitive/bone,
+* the dependent primitive receives the same render-thread delta even though it is not scene-attached
+* to the grip. Identity is the primitive + bone VRE resolves as the grip body, never a grip ID or tag.
+*/
+USTRUCT()
+struct FGripLateUpdateDependent
+{
+	GENERATED_BODY()
+
+	UPROPERTY()
+	TWeakObjectPtr<UPrimitiveComponent> DependentPrimitive;
+
+	UPROPERTY()
+	TWeakObjectPtr<UPrimitiveComponent> GripPrimitive;
+
+	UPROPERTY()
+	FName GripBoneName;
+};
+
+/**
 * An override of the MotionControllerComponent that implements position replication and Gripping with grip replication and controllable late updates per object.
 */
 UCLASS(Blueprintable, meta = (BlueprintSpawnableComponent), ClassGroup = MotionController)
@@ -163,6 +186,23 @@ public:
 	/** Update systems after physics sim is done */
 	void EndPhysicsTickComponent(FGripComponentEndPhysicsTickFunction& ThisTickFunction);
 	void RegisterEndPhysicsTick(bool bRegister);
+
+	/**
+	 * Registers a render dependency: while a grip of GripPrimitive with GripBoneName is late-updated,
+	 * DependentPrimitive receives the same render-thread delta. Used by a physically held hand that is
+	 * no longer scene-attached to the prop it follows. Add/remove are game-thread calls; duplicates are
+	 * ignored, and both controllers of a two-hand setup may hold the same registration.
+	 */
+	UFUNCTION(BlueprintCallable, Category = "GripMotionController|Late Update")
+		void AddLateUpdateDependent(UPrimitiveComponent* DependentPrimitive, UPrimitiveComponent* GripPrimitive, FName GripBoneName = NAME_None);
+
+	/** Removes the exact registration created by AddLateUpdateDependent, including a destroyed dependent. */
+	UFUNCTION(BlueprintCallable, Category = "GripMotionController|Late Update")
+		void RemoveLateUpdateDependent(UPrimitiveComponent* DependentPrimitive, UPrimitiveComponent* GripPrimitive, FName GripBoneName = NAME_None);
+
+	/** Registrations consumed by the expanded late update manager after its per-grip eligibility gates. */
+	UPROPERTY()
+		TArray<FGripLateUpdateDependent> LateUpdateDependents;
 
 	// If true then we will sample the post physics scene to get the relative location of this object.
 	// This lets us reproject that relative position prior to running the grip logic.
