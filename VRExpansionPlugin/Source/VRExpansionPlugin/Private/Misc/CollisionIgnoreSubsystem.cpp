@@ -403,7 +403,9 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 		return;
 	}
 
-	if (Prim1->GetCollisionEnabled() == ECollisionEnabled::NoCollision || Prim2->GetCollisionEnabled() == ECollisionEnabled::NoCollision)
+	// Ticket 49: a removal must still retire its tracked record when either primitive has since
+	// lost collision (e.g. a destructing hand mesh). Only the add direction needs collision enabled.
+	if (bIgnoreCollision && (Prim1->GetCollisionEnabled() == ECollisionEnabled::NoCollision || Prim2->GetCollisionEnabled() == ECollisionEnabled::NoCollision))
 	{
 		UE_LOGF(VRE_CollisionIgnoreLog, Error, "Set Objects Ignore Collision called with one or more objects with no collision!! %ls, %ls", *Prim1->GetName(), *Prim2->GetName());
 		return;
@@ -585,6 +587,14 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 				}
 			}
 		}
+	}
+
+	// Ticket 49: retire the requested logical record even when the loop above could not match every
+	// stored entry (dead ActorHandles after body/primitive destruction). The map is keyed by primitive
+	// pair, so the record belongs to this exact request; no stored handle is dereferenced here.
+	if (!bIgnoreCollision)
+	{
+		CollisionTrackedPairs.Remove(newPrimPair);
 	}
 
 	// Update our timer state
