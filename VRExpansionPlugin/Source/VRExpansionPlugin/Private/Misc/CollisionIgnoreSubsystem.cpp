@@ -589,12 +589,31 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 		}
 	}
 
-	// Ticket 49: retire the requested logical record even when the loop above could not match every
-	// stored entry (dead ActorHandles after body/primitive destruction). The map is keyed by primitive
-	// pair, so the record belongs to this exact request; no stored handle is dereferenced here.
+	// Ticket 49: a removal retires only entries whose bodies no longer exist. Live entries were
+	// handled by the loop above; destroyed ones cannot be matched there (their handles must never
+	// be dereferenced) and would otherwise keep the primitive pair tracked forever. A per-bone
+	// removal therefore keeps the remaining bones' entries.
 	if (!bIgnoreCollision)
 	{
-		CollisionTrackedPairs.Remove(newPrimPair);
+		if (FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair))
+		{
+			Tracked->PairArray.RemoveAll([&ApplicableBodies, &ApplicableBodies2](const FCollisionIgnorePair& Pair)
+			{
+				const bool bChildLive = ApplicableBodies.ContainsByPredicate([&Pair](const BodyPairStore& Body)
+				{
+					return Body.BName == Pair.BoneName1;
+				});
+				const bool bParentLive = ApplicableBodies2.ContainsByPredicate([&Pair](const BodyPairStore& Body)
+				{
+					return Body.BName == Pair.BoneName2;
+				});
+				return !bChildLive || !bParentLive;
+			});
+			if (Tracked->PairArray.Num() < 1)
+			{
+				CollisionTrackedPairs.Remove(newPrimPair);
+			}
+		}
 	}
 
 	// Update our timer state
