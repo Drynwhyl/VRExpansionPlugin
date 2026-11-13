@@ -51,6 +51,7 @@
 #include "PhysicsProxy/SingleParticlePhysicsProxy.h"
 #include "Chaos/ChaosConstraintSettings.h"
 #include "Chaos/PhysicsObject.h"
+#include "Physics/Experimental/ChaosInterfaceWrapper.h"
 #include "PhysicsEngine/PhysicsObjectExternalInterface.h"
 #include "Chaos/PhysicsObjectInterface.h"
 
@@ -76,6 +77,129 @@ const float ANGULAR_DAMPING_MULTIPLIER_CHAOS = 0.45f;
 
 // Multiplier for the Interactive Hybrid With Physics grip - When not colliding increases stiffness by this value
 const float HYBRID_PHYSICS_GRIP_MULTIPLIER = 10.0f;
+
+// Ticket 47 decision diagnostics: set cr.HybridSweepTrace 1 to log hybrid-sweep
+// collision-state transitions at the existing decision point (before any handle or
+// transform action), 2 to also compare the corrected query against the stock query
+// per body and log disagreements. Off by default, bounded, never authoritative.
+static TAutoConsoleVariable<int32> CVarHybridSweepTrace(
+	TEXT("cr.HybridSweepTrace"),
+	0,
+	TEXT("Trace VRE hybrid-sweep collision decisions. 1 logs state transitions, 2 also logs corrected-vs-stock query disagreements. 0 off. Default 0."));
+
+// Ticket 47: the stock component sweep submits every skeletal shape with the shared
+// component-level start/end/rotation and never applies per-body placement, so finger
+// capsules are tested near the component origin (research 25). This file-local helper
+// sweeps each convex shape in its own body frame: Li places body i's geometry from the
+// rigid actual component frame C0, then from the VRE base Cbase to the requested root
+// frame Crequest. Non-skeletal or non-unit-scale callers keep the stock component sweep.
+// No state is cached across ticks; all reads stay under the engine RAII read lock.
+static bool SkeletalHybridSweep(
+	UWorld* World,
+	UPrimitiveComponent* PrimComp,
+	const FTransform& Cbase,
+	const FTransform& Crequest,
+	const FComponentQueryParams& Params,
+	TArray<FHitResult>& OutHits)
+{
+	OutHits.Reset();
+	if (!World || !PrimComp)
+	{
+		return false;
+	}
+
+	const ECollisionChannel TraceChannel = PrimComp->GetCollisionObjectType();
+	const FCollisionResponseParams ResponseParams(PrimComp->GetCollisionResponseToChannels());
+
+	const USkeletalMeshComponent* SkelComp = Cast<USkeletalMeshComponent>(PrimComp);
+	const bool bUnitScale = Cbase.GetScale3D().Equals(FVector(1.0f), 1e-4f)
+		&& Crequest.GetScale3D().Equals(FVector(1.0f), 1e-4f);
+	if (!SkelComp || !bUnitScale)
+	{
+		return World->ComponentSweepMulti(OutHits, PrimComp, Cbase.GetLocation(), Crequest.GetLocation(), Crequest.GetRotation(), Params);
+	}
+
+	const FTransform C0 = FTransform(PrimComp->GetComponentTransform().GetRotation(), PrimComp->GetComponentTransform().GetLocation(), FVector(1.0f));
+
+	TArray<Chaos::FPhysicsObject*> PhysicsObjects = PrimComp->GetAllPhysicsObjects();
+	FLockedReadPhysicsObjectExternalInterface Interface = FPhysicsObjectExternalInterface::LockRead(PhysicsObjects);
+
+	PhysicsObjects = PhysicsObjects.FilterByPredicate(
+		[&Interface](Chaos::FPhysicsObject* Object)
+		{
+			return !Interface->AreAllDisabled({ &Object, 1 });
+		});
+
+	const int32 bTraceDisagreement = (CVarHybridSweepTrace.GetValueOnGameThread() >= 2) ? 1 : 0;
+	TArray<FHitResult> TempHits;
+	bool bHaveBlockingHit = false;
+
+	int32 BodyIndex = 0;
+	for (Chaos::FPhysicsObjectHandle Object : PhysicsObjects)
+	{
+		const FTransform Bi0 = Interface->GetTransform(Object);
+		const FTransform Li = Bi0.GetRelativeTransform(C0);
+		const FTransform Bstart = Li * Cbase;
+		const FTransform Bend = Li * Crequest;
+
+		FComponentQueryParams ParamsCopy{ Params };
+		TSet<uint32> ActorsToExclude;
+		for (uint32 ActorID : ParamsCopy.GetIgnoredSourceObjects())
+		{
+			ActorsToExclude.Add(ActorID);
+		}
+		ParamsCopy.ClearIgnoredSourceObjects();
+		TArray<Chaos::FShapeInstanceProxy*> Shapes = Interface->GetAllThreadShapes({ &Object, 1 });
+		for (Chaos::FShapeInstanceProxy* Shape : Shapes)
+		{
+			const Chaos::Filter::FInstanceData InstanceData = ChaosInterface::GetFilterInstanceData(*Shape);
+			uint32 ShapeActorID = InstanceData.GetOwnerId();
+			ActorsToExclude.Add(ShapeActorID);
+		}
+
+		for (uint32 ActorID : ActorsToExclude)
+		{
+			ParamsCopy.AddIgnoredActor(ActorID);
+		}
+
+		for (Chaos::FShapeInstanceProxy* Shape : Shapes)
+		{
+			FPhysicsShapeHandle ShapeHandle{ Shape, nullptr };
+
+			check(ShapeHandle.IsValid());
+			if (!ShapeHandle.GetGeometry().IsConvex())
+			{
+				continue;
+			}
+
+			FPhysicsGeometryCollection GeomCollection = FPhysicsInterface::GetGeometryCollection(ShapeHandle);
+			TempHits.Reset();
+			if (FPhysicsInterface::GeomSweepMulti(World, GeomCollection, Bend.GetRotation(), TempHits, Bstart.GetLocation(), Bend.GetLocation(), TraceChannel, ParamsCopy, ResponseParams))
+			{
+				bHaveBlockingHit = true;
+			}
+			OutHits.Append(TempHits);
+		}
+
+		++BodyIndex;
+	}
+
+	// Same ordering as the stock component sweep (private engine comparator is out of reach here): earliest hit first.
+	OutHits.Sort([](const FHitResult& A, const FHitResult& B) { return A.Time < B.Time; });
+
+	if (bTraceDisagreement)
+	{
+		TArray<FHitResult> OldHits;
+		const bool bOldBlocking = World->ComponentSweepMulti(OldHits, PrimComp, Cbase.GetLocation(), Crequest.GetLocation(), Crequest.GetRotation(), Params);
+		if (bOldBlocking != bHaveBlockingHit)
+		{
+			UE_LOG(LogVRMotionController, Warning, TEXT("HybridSweep disagree bodies=%d old=%d new=%d"),
+				BodyIndex, bOldBlocking ? 1 : 0, bHaveBlockingHit ? 1 : 0);
+		}
+	}
+
+	return bHaveBlockingHit;
+}
 
 namespace {
 	/** This is to prevent destruction of motion controller components while they are
@@ -5554,7 +5678,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 
 							Grip->bColliding = true;
 						}
-						else if (GetWorld()->ComponentSweepMulti(Hits, root, root->GetComponentLocation(), WorldTransform.GetLocation(), WorldTransform.GetRotation(), Params) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
+						else if (SkeletalHybridSweep(GetWorld(), root, FTransform(root->GetComponentTransform().GetRotation(), root->GetComponentLocation(), FVector(1.0f)), FTransform(WorldTransform.GetRotation(), WorldTransform.GetLocation(), FVector(1.0f)), Params, Hits) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
 						{
 							// Assume true by default, will revert if checking ignored below
 							Grip->bColliding = true;
@@ -5683,7 +5807,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 								// We need to also check the other rotation here as a fallback
 								if (bLerpCollisions && !Grip->bColliding)
 								{
-									if (bLerpCollisions && GetWorld()->ComponentSweepMulti(Hits, root, BaseTransform.GetLocation(), WorldTransform.GetLocation(), root->GetComponentRotation(), Params))
+									if (bLerpCollisions && SkeletalHybridSweep(GetWorld(), root, FTransform(BaseTransform.GetRotation(), BaseTransform.GetLocation(), FVector(1.0f)), FTransform(root->GetComponentRotation(), WorldTransform.GetLocation(), FVector(1.0f)), Params, Hits))
 									{
 										for (const FHitResult& Hit : Hits)
 										{
@@ -5698,7 +5822,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 							}
 						}
 						// Check the other rotation
-						else if (bLerpCollisions && GetWorld()->ComponentSweepMulti(Hits, root, BaseTransform.GetLocation(), WorldTransform.GetLocation(), root->GetComponentRotation(), Params) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
+						else if (bLerpCollisions && SkeletalHybridSweep(GetWorld(), root, FTransform(BaseTransform.GetRotation(), BaseTransform.GetLocation(), FVector(1.0f)), FTransform(root->GetComponentRotation(), WorldTransform.GetLocation(), FVector(1.0f)), Params, Hits) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
 						{
 							// Assume true by default, will revert if checking ignored below
 							Grip->bColliding = true;
@@ -5724,13 +5848,34 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 						else
 						{
 							Grip->bColliding = false;
-						}
+					}
 
-						if (!Grip->bColliding)
+					// Ticket 47 decision trace (opt-in cr.HybridSweepTrace): emitted before any handle
+					// or transform action, so a transition line proves the collision branch ran first.
+					if (CVarHybridSweepTrace.GetValueOnGameThread() >= 1 && Grip->bColliding != bWasColliding)
+					{
+						const FHitResult* FirstBlocking = nullptr;
+						for (const FHitResult& HybridHit : Hits)
 						{
-							if (GripHandle && !GripHandle->bIsPaused)
+							if (HybridHit.bBlockingHit)
 							{
-								PausePhysicsHandle(GripHandle);
+								FirstBlocking = &HybridHit;
+								break;
+							}
+						}
+						const int32 bHandlePaused = (GripHandle && GripHandle->bIsPaused) ? 1 : 0;
+						UE_LOG(LogVRMotionController, Warning, TEXT("HybridSweep flip target=%s was=%d now=%d hit=%s paused=%d"),
+							*GetNameSafe(actor),
+							bWasColliding ? 1 : 0, Grip->bColliding ? 1 : 0,
+							FirstBlocking ? *FString::Printf(TEXT("%s.%s"), *GetNameSafe(FirstBlocking->GetActor()), *GetNameSafe(FirstBlocking->GetComponent())) : TEXT("clear"),
+							bHandlePaused);
+					}
+
+					if (!Grip->bColliding)
+					{
+						if (GripHandle && !GripHandle->bIsPaused)
+						{
+							PausePhysicsHandle(GripHandle);
 								//DestroyPhysicsHandle(*Grip);
 
 								switch (Grip->GripTargetType)
