@@ -209,7 +209,6 @@ static bool SkeletalHybridSweep(
 			}
 			for (const FHitResult& ShapeHit : TempHits)
 			{
-				OutHits.Add(ShapeHit);
 				ScoredHits.Add({ ShapeHit, BodyIndex, (int32)FPhysicsInterface::GetShapeType(ShapeHandle), Bi0, Bend });
 			}
 		}
