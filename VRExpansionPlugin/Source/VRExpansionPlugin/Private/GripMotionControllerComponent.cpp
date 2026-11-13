@@ -103,6 +103,15 @@ struct FSkeletalSweepFirstHit
 	bool bHit = false;
 };
 
+struct FSkeletalSweepScoredHit
+{
+	FHitResult Hit;
+	int32 BodyIndex = -1;
+	int32 ShapeType = -1;
+	FTransform Bi0;
+	FTransform Bend;
+};
+
 static bool SkeletalHybridSweep(
 	UWorld* World,
 	UPrimitiveComponent* PrimComp,
@@ -150,6 +159,7 @@ static bool SkeletalHybridSweep(
 
 	const int32 bTraceDisagreement = (CVarHybridSweepTrace.GetValueOnGameThread() >= 2) ? 1 : 0;
 	TArray<FHitResult> TempHits;
+	TArray<FSkeletalSweepScoredHit> ScoredHits;
 	bool bHaveBlockingHit = false;
 
 	int32 BodyIndex = 0;
@@ -196,23 +206,32 @@ static bool SkeletalHybridSweep(
 			if (bShapeBlocking)
 			{
 				bHaveBlockingHit = true;
-				if (OutFirstHit && !OutFirstHit->bHit)
-				{
-					OutFirstHit->bHit = true;
-					OutFirstHit->BodyIndex = BodyIndex;
-					OutFirstHit->ShapeType = (int32)FPhysicsInterface::GetShapeType(ShapeHandle);
-					OutFirstHit->Bi0 = Bi0;
-					OutFirstHit->Bend = Bend;
-				}
 			}
-			OutHits.Append(TempHits);
+			for (const FHitResult& ShapeHit : TempHits)
+			{
+				OutHits.Add(ShapeHit);
+				ScoredHits.Add({ ShapeHit, BodyIndex, (int32)FPhysicsInterface::GetShapeType(ShapeHandle), Bi0, Bend });
+			}
 		}
 
 		++BodyIndex;
 	}
 
 	// Same ordering as the stock component sweep (private engine comparator is out of reach here): earliest hit first.
-	OutHits.Sort([](const FHitResult& A, const FHitResult& B) { return A.Time < B.Time; });
+	// The transition trace reports the earliest-time blocking hit, so provenance follows the same order.
+	ScoredHits.Sort([](const FSkeletalSweepScoredHit& A, const FSkeletalSweepScoredHit& B) { return A.Hit.Time < B.Hit.Time; });
+	for (const FSkeletalSweepScoredHit& Scored : ScoredHits)
+	{
+		OutHits.Add(Scored.Hit);
+		if (OutFirstHit && !OutFirstHit->bHit && Scored.Hit.bBlockingHit)
+		{
+			OutFirstHit->bHit = true;
+			OutFirstHit->BodyIndex = Scored.BodyIndex;
+			OutFirstHit->ShapeType = Scored.ShapeType;
+			OutFirstHit->Bi0 = Scored.Bi0;
+			OutFirstHit->Bend = Scored.Bend;
+		}
+	}
 
 	if (bTraceDisagreement)
 	{
