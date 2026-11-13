@@ -94,15 +94,29 @@ static TAutoConsoleVariable<int32> CVarHybridSweepTrace(
 // rigid actual component frame C0, then from the VRE base Cbase to the requested root
 // frame Crequest. Non-skeletal or non-unit-scale callers keep the stock component sweep.
 // No state is cached across ticks; all reads stay under the engine RAII read lock.
+struct FSkeletalSweepFirstHit
+{
+	int32 BodyIndex = -1;
+	int32 ShapeType = -1;
+	FTransform Bi0;
+	FTransform Bend;
+	bool bHit = false;
+};
+
 static bool SkeletalHybridSweep(
 	UWorld* World,
 	UPrimitiveComponent* PrimComp,
 	const FTransform& Cbase,
 	const FTransform& Crequest,
 	const FComponentQueryParams& Params,
-	TArray<FHitResult>& OutHits)
+	TArray<FHitResult>& OutHits,
+	FSkeletalSweepFirstHit* OutFirstHit = nullptr)
 {
 	OutHits.Reset();
+	if (OutFirstHit)
+	{
+		*OutFirstHit = FSkeletalSweepFirstHit();
+	}
 	if (!World || !PrimComp)
 	{
 		return false;
@@ -112,7 +126,11 @@ static bool SkeletalHybridSweep(
 	const FCollisionResponseParams ResponseParams(PrimComp->GetCollisionResponseToChannels());
 
 	const USkeletalMeshComponent* SkelComp = Cast<USkeletalMeshComponent>(PrimComp);
-	const bool bUnitScale = Cbase.GetScale3D().Equals(FVector(1.0f), 1e-4f)
+	// Eligibility is tested on true scales: the component's own scale plus the passed
+	// base/request scales. A scaled skeletal root keeps the stock sweep (and its
+	// preexisting behavior) instead of silently taking the body-frame path.
+	const bool bUnitScale = PrimComp->GetComponentScale().Equals(FVector(1.0f), 1e-4f)
+		&& Cbase.GetScale3D().Equals(FVector(1.0f), 1e-4f)
 		&& Crequest.GetScale3D().Equals(FVector(1.0f), 1e-4f);
 	if (!SkelComp || !bUnitScale)
 	{
@@ -174,9 +192,18 @@ static bool SkeletalHybridSweep(
 
 			FPhysicsGeometryCollection GeomCollection = FPhysicsInterface::GetGeometryCollection(ShapeHandle);
 			TempHits.Reset();
-			if (FPhysicsInterface::GeomSweepMulti(World, GeomCollection, Bend.GetRotation(), TempHits, Bstart.GetLocation(), Bend.GetLocation(), TraceChannel, ParamsCopy, ResponseParams))
+			const bool bShapeBlocking = FPhysicsInterface::GeomSweepMulti(World, GeomCollection, Bend.GetRotation(), TempHits, Bstart.GetLocation(), Bend.GetLocation(), TraceChannel, ParamsCopy, ResponseParams);
+			if (bShapeBlocking)
 			{
 				bHaveBlockingHit = true;
+				if (OutFirstHit && !OutFirstHit->bHit)
+				{
+					OutFirstHit->bHit = true;
+					OutFirstHit->BodyIndex = BodyIndex;
+					OutFirstHit->ShapeType = (int32)FPhysicsInterface::GetShapeType(ShapeHandle);
+					OutFirstHit->Bi0 = Bi0;
+					OutFirstHit->Bend = Bend;
+				}
 			}
 			OutHits.Append(TempHits);
 		}
@@ -5678,7 +5705,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 
 							Grip->bColliding = true;
 						}
-						else if (SkeletalHybridSweep(GetWorld(), root, FTransform(root->GetComponentTransform().GetRotation(), root->GetComponentLocation(), FVector(1.0f)), FTransform(WorldTransform.GetRotation(), WorldTransform.GetLocation(), FVector(1.0f)), Params, Hits) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
+						else if (GetWorld()->ComponentSweepMulti(Hits, root, root->GetComponentLocation(), WorldTransform.GetLocation(), WorldTransform.GetRotation(), Params) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
 						{
 							// Assume true by default, will revert if checking ignored below
 							Grip->bColliding = true;
@@ -5778,12 +5805,14 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 							bDistanceBasedInterpolation = VRSettings->bHybridWithSweepUseDistanceBasedLerp;
 						}
 
-						if (Grip->bLockHybridGrip)
-						{
-							Grip->bColliding = true;
-						}
-						// Check our target rotation
-						else if (GetWorld()->ComponentSweepMulti(Hits, root, BaseTransform.GetLocation(), WorldTransform.GetLocation(), WorldTransform.GetRotation(), Params) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
+						FSkeletalSweepFirstHit FirstHybridHit;
+					if (Grip->bLockHybridGrip)
+					{
+						Grip->bColliding = true;
+					}
+					// Check our target rotation. Skeletal bodies are swept in their own body frames
+					// (ticket 47); other callers keep the stock query.
+					else if (SkeletalHybridSweep(GetWorld(), root, BaseTransform, WorldTransform, Params, Hits, &FirstHybridHit) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
 						{
 							// Assume true by default, will revert if checking ignored below
 							Grip->bColliding = true;
@@ -5807,7 +5836,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 								// We need to also check the other rotation here as a fallback
 								if (bLerpCollisions && !Grip->bColliding)
 								{
-									if (bLerpCollisions && SkeletalHybridSweep(GetWorld(), root, FTransform(BaseTransform.GetRotation(), BaseTransform.GetLocation(), FVector(1.0f)), FTransform(root->GetComponentRotation(), WorldTransform.GetLocation(), FVector(1.0f)), Params, Hits))
+									if (bLerpCollisions && SkeletalHybridSweep(GetWorld(), root, BaseTransform, FTransform(root->GetComponentRotation(), WorldTransform.GetLocation(), WorldTransform.GetScale3D()), Params, Hits, &FirstHybridHit))
 									{
 										for (const FHitResult& Hit : Hits)
 										{
@@ -5822,7 +5851,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 							}
 						}
 						// Check the other rotation
-						else if (bLerpCollisions && SkeletalHybridSweep(GetWorld(), root, FTransform(BaseTransform.GetRotation(), BaseTransform.GetLocation(), FVector(1.0f)), FTransform(root->GetComponentRotation(), WorldTransform.GetLocation(), FVector(1.0f)), Params, Hits) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
+						else if (bLerpCollisions && SkeletalHybridSweep(GetWorld(), root, BaseTransform, FTransform(root->GetComponentRotation(), WorldTransform.GetLocation(), WorldTransform.GetScale3D()), Params, Hits, &FirstHybridHit) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
 						{
 							// Assume true by default, will revert if checking ignored below
 							Grip->bColliding = true;
@@ -5864,10 +5893,13 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 							}
 						}
 						const int32 bHandlePaused = (GripHandle && GripHandle->bIsPaused) ? 1 : 0;
-						UE_LOG(LogVRMotionController, Warning, TEXT("HybridSweep flip target=%s was=%d now=%d hit=%s paused=%d"),
+						UE_LOG(LogVRMotionController, Warning, TEXT("HybridSweep flip target=%s was=%d now=%d hit=%s chan=%d body=%d shape=%d Bi0=%s Bend=%s paused=%d"),
 							*GetNameSafe(actor),
 							bWasColliding ? 1 : 0, Grip->bColliding ? 1 : 0,
 							FirstBlocking ? *FString::Printf(TEXT("%s.%s"), *GetNameSafe(FirstBlocking->GetActor()), *GetNameSafe(FirstBlocking->GetComponent())) : TEXT("clear"),
+							(int32)root->GetCollisionObjectType(),
+							FirstHybridHit.BodyIndex, FirstHybridHit.ShapeType,
+							*FirstHybridHit.Bi0.ToString(), *FirstHybridHit.Bend.ToString(),
 							bHandlePaused);
 					}
 
