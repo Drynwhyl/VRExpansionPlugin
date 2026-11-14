@@ -579,8 +579,9 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 
 								// Always retire the record for this bone pair. A body recreated during the
 								// tracked window is no longer ignored, so the manager call above does
-								// nothing; a surviving record would be re-armed by CheckActiveFilters and
-								// the pair would stay ignored forever.
+								// nothing; a surviving record would still be read by the grip sweep as
+								// "these components ignore each other", so the released prop would keep
+								// being ignored forever.
 								if (FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair))
 								{
 									Tracked->PairArray.Remove(newIgnorePair);
