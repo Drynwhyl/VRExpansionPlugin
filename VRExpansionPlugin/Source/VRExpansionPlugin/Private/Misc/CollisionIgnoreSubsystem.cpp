@@ -569,18 +569,25 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 								{
 									IgnoreCollisionManager.RemoveIgnoreCollisions(pHandle1, pHandle2);
 
-									CollisionTrackedPairs[newPrimPair].PairArray.Remove(newIgnorePair);
-									if (CollisionTrackedPairs[newPrimPair].PairArray.Num() < 1)
-									{
-										CollisionTrackedPairs.Remove(newPrimPair);
-									}
-
 									// If we don't have a map element for this pair, then add it now
 									if (!RemovedPairs.Contains(newPrimPair))
 									{
 										RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray());
 									}
 									RemovedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
+								}
+
+								// Always retire the record for this bone pair. A body recreated during the
+								// tracked window is no longer ignored, so the manager call above does
+								// nothing; a surviving record would be re-armed by CheckActiveFilters and
+								// the pair would stay ignored forever.
+								if (FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair))
+								{
+									Tracked->PairArray.Remove(newIgnorePair);
+									if (Tracked->PairArray.Num() < 1)
+									{
+										CollisionTrackedPairs.Remove(newPrimPair);
+									}
 								}
 							}
 						});
