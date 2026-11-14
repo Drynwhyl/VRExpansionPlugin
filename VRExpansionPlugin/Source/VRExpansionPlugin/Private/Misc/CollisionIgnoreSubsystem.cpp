@@ -565,29 +565,29 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 							}
 							else if (pHandle1 && pHandle2)
 							{
-								if (IgnoreCollisionManager.IgnoresCollision(pHandle1, pHandle2))
+								// Release only pairs this subsystem acquired, and retire the record only
+								// when the native removal actually happened. A pair another owner ignores
+								// (an authored PA joint, another subsystem) must keep its count.
+								FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair);
+								if (Tracked != nullptr && Tracked->PairArray.Contains(newIgnorePair))
 								{
-									IgnoreCollisionManager.RemoveIgnoreCollisions(pHandle1, pHandle2);
-
-									// If we don't have a map element for this pair, then add it now
-									if (!RemovedPairs.Contains(newPrimPair))
+									if (IgnoreCollisionManager.IgnoresCollision(pHandle1, pHandle2))
 									{
-										RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray());
-									}
-									RemovedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
-								}
+										IgnoreCollisionManager.RemoveIgnoreCollisions(pHandle1, pHandle2);
 
-								// Always retire the record for this bone pair. A body recreated during the
-								// tracked window is no longer ignored, so the manager call above does
-								// nothing; a surviving record would still be read by the grip sweep as
-								// "these components ignore each other", so the released prop would keep
-								// being ignored forever.
-								if (FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair))
-								{
-									Tracked->PairArray.Remove(newIgnorePair);
-									if (Tracked->PairArray.Num() < 1)
-									{
-										CollisionTrackedPairs.Remove(newPrimPair);
+										// If we don't have a map element for this pair, then add it now
+										if (!RemovedPairs.Contains(newPrimPair))
+										{
+											RemovedPairs.Add(newPrimPair, FCollisionIgnorePairArray());
+										}
+										RemovedPairs[newPrimPair].PairArray.AddUnique(newIgnorePair);
+
+										Tracked->PairArray.Remove(newIgnorePair);
+										if (CollisionTrackedPairs.Contains(newPrimPair)
+											&& CollisionTrackedPairs[newPrimPair].PairArray.Num() < 1)
+										{
+											CollisionTrackedPairs.Remove(newPrimPair);
+										}
 									}
 								}
 							}

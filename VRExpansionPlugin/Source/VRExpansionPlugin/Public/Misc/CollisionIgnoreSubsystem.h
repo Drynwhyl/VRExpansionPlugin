@@ -123,10 +123,11 @@ public:
 		if (!IsValid(Other.Prim1) || !IsValid(Other.Prim2))
 			return false;
 		
-		return(
-			(Prim1.Get() == Other.Prim1.Get() || Prim1.Get() == Other.Prim2.Get()) &&
-			(Prim2.Get() == Other.Prim1.Get() || Prim2.Get() == Other.Prim2.Get())
-			);
+		// Unordered pair identity: (A,B) and (B,A) are the same key, and nothing else is. The
+		// previous member-wise form matched (Hand, Hand) against (Hand, Prop), so a prop pair was
+		// recorded under the self-pair key and later removals could never find it.
+		return (Prim1.Get() == Other.Prim1.Get() && Prim2.Get() == Other.Prim2.Get())
+			|| (Prim1.Get() == Other.Prim2.Get() && Prim2.Get() == Other.Prim1.Get());
 	}
 
 	friend uint32 GetTypeHash(const FCollisionPrimPair& InKey)
