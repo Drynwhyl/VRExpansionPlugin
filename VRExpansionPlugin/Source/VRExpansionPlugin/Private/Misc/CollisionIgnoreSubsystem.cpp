@@ -595,18 +595,38 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 	// removal therefore keeps the remaining bones' entries.
 	if (!bIgnoreCollision)
 	{
+		// Liveness is judged against the full body set of each skeletal side, never against the
+		// optional bone filter: a per-bone removal must keep the other bones' live entries. A
+		// non-skeletal side cannot be enumerated, so its entries are never pruned here (a destroyed
+		// primitive is dropped by CheckActiveFilters).
+		TArray<FName> LiveBones1;
+		TArray<FName> LiveBones2;
+		if (SkeleMesh)
+		{
+			if (UPhysicsAsset* PhysAsset = SkeleMesh->GetPhysicsAsset())
+			{
+				SkeleMesh->ForEachBodyBelow(NAME_None, true, false, [PhysAsset, &LiveBones1](FBodyInstance* BI)
+				{
+					LiveBones1.Add(PhysAsset->SkeletalBodySetups[BI->InstanceBodyIndex]->BoneName);
+				});
+			}
+		}
+		if (SkeleMesh2)
+		{
+			if (UPhysicsAsset* PhysAsset = SkeleMesh2->GetPhysicsAsset())
+			{
+				SkeleMesh2->ForEachBodyBelow(NAME_None, true, false, [PhysAsset, &LiveBones2](FBodyInstance* BI)
+				{
+					LiveBones2.Add(PhysAsset->SkeletalBodySetups[BI->InstanceBodyIndex]->BoneName);
+				});
+			}
+		}
 		if (FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair))
 		{
-			Tracked->PairArray.RemoveAll([&ApplicableBodies, &ApplicableBodies2](const FCollisionIgnorePair& Pair)
+			Tracked->PairArray.RemoveAll([&LiveBones1, &LiveBones2, &SkeleMesh, &SkeleMesh2](const FCollisionIgnorePair& Pair)
 			{
-				const bool bChildLive = ApplicableBodies.ContainsByPredicate([&Pair](const BodyPairStore& Body)
-				{
-					return Body.BName == Pair.BoneName1;
-				});
-				const bool bParentLive = ApplicableBodies2.ContainsByPredicate([&Pair](const BodyPairStore& Body)
-				{
-					return Body.BName == Pair.BoneName2;
-				});
+				const bool bChildLive = SkeleMesh == nullptr || LiveBones1.Contains(Pair.BoneName1);
+				const bool bParentLive = SkeleMesh2 == nullptr || LiveBones2.Contains(Pair.BoneName2);
 				return !bChildLive || !bParentLive;
 			});
 			if (Tracked->PairArray.Num() < 1)
