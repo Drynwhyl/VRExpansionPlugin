@@ -596,26 +596,29 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 	if (!bIgnoreCollision)
 	{
 		// Liveness is judged against the full body set of each skeletal side, never against the
-		// optional bone filter: a per-bone removal must keep the other bones' live entries. A
-		// non-skeletal side cannot be enumerated, so its entries are never pruned here (a destroyed
-		// primitive is dropped by CheckActiveFilters).
+		// optional bone filter: a per-bone removal must keep the other bones' live entries. The cast
+		// does not depend on the iterate flags, so a bone-scoped request still knows the body set.
+		// A non-skeletal side cannot be enumerated and is never pruned here; a destroyed primitive
+		// is dropped by CheckActiveFilters.
+		USkeletalMeshComponent* LiveSkel1 = Cast<USkeletalMeshComponent>(Prim1);
+		USkeletalMeshComponent* LiveSkel2 = Cast<USkeletalMeshComponent>(Prim2);
 		TArray<FName> LiveBones1;
 		TArray<FName> LiveBones2;
-		if (SkeleMesh)
+		if (LiveSkel1 != nullptr)
 		{
-			if (UPhysicsAsset* PhysAsset = SkeleMesh->GetPhysicsAsset())
+			if (UPhysicsAsset* PhysAsset = LiveSkel1->GetPhysicsAsset())
 			{
-				SkeleMesh->ForEachBodyBelow(NAME_None, true, false, [PhysAsset, &LiveBones1](FBodyInstance* BI)
+				LiveSkel1->ForEachBodyBelow(NAME_None, true, false, [PhysAsset, &LiveBones1](FBodyInstance* BI)
 				{
 					LiveBones1.Add(PhysAsset->SkeletalBodySetups[BI->InstanceBodyIndex]->BoneName);
 				});
 			}
 		}
-		if (SkeleMesh2)
+		if (LiveSkel2 != nullptr)
 		{
-			if (UPhysicsAsset* PhysAsset = SkeleMesh2->GetPhysicsAsset())
+			if (UPhysicsAsset* PhysAsset = LiveSkel2->GetPhysicsAsset())
 			{
-				SkeleMesh2->ForEachBodyBelow(NAME_None, true, false, [PhysAsset, &LiveBones2](FBodyInstance* BI)
+				LiveSkel2->ForEachBodyBelow(NAME_None, true, false, [PhysAsset, &LiveBones2](FBodyInstance* BI)
 				{
 					LiveBones2.Add(PhysAsset->SkeletalBodySetups[BI->InstanceBodyIndex]->BoneName);
 				});
@@ -623,10 +626,10 @@ void UCollisionIgnoreSubsystem::SetComponentCollisionIgnoreState(bool bIterateCh
 		}
 		if (FCollisionIgnorePairArray* Tracked = CollisionTrackedPairs.Find(newPrimPair))
 		{
-			Tracked->PairArray.RemoveAll([&LiveBones1, &LiveBones2, &SkeleMesh, &SkeleMesh2](const FCollisionIgnorePair& Pair)
+			Tracked->PairArray.RemoveAll([&LiveBones1, &LiveBones2, &LiveSkel1, &LiveSkel2](const FCollisionIgnorePair& Pair)
 			{
-				const bool bChildLive = SkeleMesh == nullptr || LiveBones1.Contains(Pair.BoneName1);
-				const bool bParentLive = SkeleMesh2 == nullptr || LiveBones2.Contains(Pair.BoneName2);
+				const bool bChildLive = LiveSkel1 == nullptr || LiveBones1.Contains(Pair.BoneName1);
+				const bool bParentLive = LiveSkel2 == nullptr || LiveBones2.Contains(Pair.BoneName2);
 				return !bChildLive || !bParentLive;
 			});
 			if (Tracked->PairArray.Num() < 1)
