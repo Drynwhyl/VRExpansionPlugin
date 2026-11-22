@@ -3,6 +3,7 @@
 #include "GripMotionControllerComponent.h"
 #include UE_INLINE_GENERATED_CPP_BY_NAME(GripMotionControllerComponent)
 
+#include "SkeletalHybridSweep.h"
 #include "VRExpansionFunctionLibrary.h"
 #include "IHeadMountedDisplay.h"
 #include "HeadMountedDisplayTypes.h"
@@ -89,20 +90,8 @@ static TAutoConsoleVariable<int32> CVarHybridSweepTrace(
 
 // Ticket 47: the stock component sweep submits every skeletal shape with the shared
 // component-level start/end/rotation and never applies per-body placement, so finger
-// capsules are tested near the component origin (research 25). This file-local helper
-// sweeps each convex shape in its own body frame: Li places body i's geometry from the
-// rigid actual component frame C0, then from the VRE base Cbase to the requested root
-// frame Crequest. Non-skeletal or non-unit-scale callers keep the stock component sweep.
-// No state is cached across ticks; all reads stay under the engine RAII read lock.
-struct FSkeletalSweepFirstHit
-{
-	int32 BodyIndex = -1;
-	int32 ShapeType = -1;
-	FTransform Bi0;
-	FTransform Bend;
-	bool bHit = false;
-};
-
+// capsules are tested near the component origin (research 25). SkeletalHybridSweep
+// (Public/SkeletalHybridSweep.h) sweeps each convex shape in its own body frame.
 struct FSkeletalSweepScoredHit
 {
 	FHitResult Hit;
@@ -112,14 +101,14 @@ struct FSkeletalSweepScoredHit
 	FTransform Bend;
 };
 
-static bool SkeletalHybridSweep(
+bool SkeletalHybridSweep(
 	UWorld* World,
 	UPrimitiveComponent* PrimComp,
 	const FTransform& Cbase,
 	const FTransform& Crequest,
 	const FComponentQueryParams& Params,
 	TArray<FHitResult>& OutHits,
-	FSkeletalSweepFirstHit* OutFirstHit = nullptr)
+	FSkeletalSweepFirstHit* OutFirstHit)
 {
 	OutHits.Reset();
 	if (OutFirstHit)
