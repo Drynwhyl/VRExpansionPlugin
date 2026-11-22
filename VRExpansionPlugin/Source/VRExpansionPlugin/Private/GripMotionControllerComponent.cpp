@@ -1382,7 +1382,7 @@ void UGripMotionControllerComponent::SetGripStiffnessAndDamping(
 		DIRTY_GRIPPED_OBJECTS();
 
 		Result = EBPVRResultSwitch::OnSucceeded;
-		SetGripConstraintStiffnessAndDamping(&GrippedObjects[fIndex]);
+		SetGripConstraintStiffnessAndDamping(&GrippedObjects[fIndex], !GrippedObjects[fIndex].bColliding);
 		//return;
 	}
 	else
@@ -1409,7 +1409,7 @@ void UGripMotionControllerComponent::SetGripStiffnessAndDamping(
 			DIRTY_LOCALLY_GRIPPED_OBJECTS();
 
 			Result = EBPVRResultSwitch::OnSucceeded;
-			SetGripConstraintStiffnessAndDamping(&LocallyGrippedObjects[fIndex]);
+			SetGripConstraintStiffnessAndDamping(&LocallyGrippedObjects[fIndex], !LocallyGrippedObjects[fIndex].bColliding);
 		//	return;
 		}
 	}
@@ -5714,6 +5714,9 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 						}
 						else if (GetWorld()->ComponentSweepMulti(Hits, root, root->GetComponentLocation(), WorldTransform.GetLocation(), WorldTransform.GetRotation(), Params) && FHitResult::GetFirstBlockingHit(Hits) != nullptr)
 						{
+							// Capture the previous state BEFORE claiming contact, otherwise the
+							// entry transition below can never observe "was clear".
+							const bool bOriginalColliding = Grip->bColliding;
 							// Assume true by default, will revert if checking ignored below
 							Grip->bColliding = true;
 
@@ -5723,7 +5726,6 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 							if (CollisionIgnoreSubsystem->HasCollisionIgnorePairs())
 							{
 
-								bool bOriginalColliding = Grip->bColliding;
 								// Pre-set this so it falls back to false if none of these hits are valid
 								Grip->bColliding = false;
 
@@ -5752,7 +5754,7 @@ void UGripMotionControllerComponent::HandleGripArray(TArray<FBPActorGripInformat
 							}
 							else
 							{
-								if (!Grip->bColliding)
+								if (!bOriginalColliding)
 								{
 									SetGripConstraintStiffnessAndDamping(Grip, false);
 								}
@@ -7010,6 +7012,12 @@ bool UGripMotionControllerComponent::SetUpPhysicsHandle(const FBPActorGripInform
 
 	HandleInfo->bInitiallySetup = true;
 
+	// Hybrid-with-physics distinguishes a clear grip (stiff, tight tracking) from a colliding one
+	// (normal stiffness, yields to the world) through the hybrid multiplier. The handle above was
+	// built from the raw grip stiffness, so publish the current state's value explicitly; a grip
+	// re-created while still in contact must stay soft.
+	SetGripConstraintStiffnessAndDamping(&NewGrip, !NewGrip.bColliding);
+
 	// Bind to further updates in order to keep it alive
 	if (bUseActorHandle && !rBodyInstance->OnRecalculatedMassProperties().IsBoundToObject(this))
 	{
@@ -7124,7 +7132,7 @@ bool UGripMotionControllerComponent::SetGripConstraintStiffnessAndDamping(const 
 					}
 					else
 					{
-						if (Grip->GripCollisionType == EGripCollisionType::InteractiveHybridCollisionWithPhysics)
+						if (Grip->GripCollisionType == EGripCollisionType::InteractiveHybridCollisionWithPhysics && bUseHybridMultiplier)
 						{
 							// Do not effect damping, just increase stiffness so that it is stronger
 							// Default multiplier
@@ -7133,6 +7141,16 @@ bool UGripMotionControllerComponent::SetGripConstraintStiffnessAndDamping(const 
 
 							AngularMaxForce = (float)FMath::Clamp<double>((double)AngularStiffness * (double)Grip->AdvancedGripSettings.PhysicsSettings.AngularMaxForceCoefficient, 0, (double)MAX_FLT);
 							MaxForce = (float)FMath::Clamp<double>((double)Stiffness * (double)Grip->AdvancedGripSettings.PhysicsSettings.LinearMaxForceCoefficient, 0, (double)MAX_FLT);
+						}
+
+						if (CVarHybridSweepTrace.GetValueOnGameThread() >= 2
+							&& Grip->GripCollisionType == EGripCollisionType::InteractiveHybridCollisionWithPhysics)
+						{
+							UE_LOG(LogVRMotionController, Warning,
+								TEXT("HybridPhysics stiffness target=%s hybrid=%d colliding=%d locked=%d lin=%.1f ang=%.1f"),
+								*GetNameSafe(Grip->GrippedObject),
+								bUseHybridMultiplier ? 1 : 0, Grip->bColliding ? 1 : 0,
+								Grip->bLockHybridGrip ? 1 : 0, Stiffness, AngularStiffness);
 						}
 
 						HandleInfo->LinConstraint.XDrive.Damping = Damping;
